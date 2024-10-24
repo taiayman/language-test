@@ -1,0 +1,41 @@
+name: test_windows_students
+description: "A new Flutter project."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.4.4 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.2
+  google_fonts: ^5.1.0
+  file_picker: ^5.3.3
+  path_provider: ^2.0.15
+  file_selector: ^1.0.1
+  supabase_flutter: ^1.10.25
+  flutter_vector_icons: ^2.0.0
+  just_audio: ^0.9.36
+  shared_preferences: ^2.2.2
+  # For Android
+  just_audio_background: ^0.0.1-beta.10
+  just_audio_windows: ^0.2.2
+
+dependency_overrides:
+  # Add this section to ensure Windows compatibility
+  just_audio_platform_interface: ^4.2.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/image_login.png
+    - assets/audio/situation1.mp3
+    - assets/audio/situation2.mp3
+    # Add any other assets you need here
