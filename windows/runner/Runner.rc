@@ -32,8 +32,7 @@ END
 
 2 TEXTINCLUDE
 BEGIN
-    "#include ""winres.h""\r\n"
-    "\0"
+    "#include ""winres.h""\0"
 END
 
 3 TEXTINCLUDE
@@ -89,14 +88,14 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "com.example" "\0"
-            VALUE "FileDescription", "test_windows_students" "\0"
-            VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "test_windows_students" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2024 com.example. All rights reserved." "\0"
-            VALUE "OriginalFilename", "test_windows_students.exe" "\0"
-            VALUE "ProductName", "test_windows_students" "\0"
-            VALUE "ProductVersion", VERSION_AS_STRING "\0"
+            VALUE "CompanyName", "ALC El Jadida"
+            VALUE "FileDescription", "ALC El Jadida Tests"
+            VALUE "FileVersion", VERSION_AS_STRING
+            VALUE "InternalName", "alc_eljadida_tests"
+            VALUE "LegalCopyright", "Copyright (C) 2024 ALC El Jadida. All rights reserved."
+            VALUE "OriginalFilename", "alc_eljadida_tests.exe"
+            VALUE "ProductName", "ALC El Jadida Tests"
+            VALUE "ProductVersion", VERSION_AS_STRING
         END
     END
     BLOCK "VarFileInfo"

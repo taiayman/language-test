@@ -3,19 +3,19 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_vector_icons/flutter_vector_icons.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:test_windows_students/screens/grammar_test_results_page.dart';
-import 'package:test_windows_students/services/test_session_service.dart';  // Update to correct path
-import 'package:test_windows_students/services/auth_service.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-import 'package:test_windows_students/services/test_results_service.dart';
-import 'package:test_windows_students/models/test_result.dart';
+import 'package:alc_eljadida_tests/services/test_session_service.dart';
+import 'package:alc_eljadida_tests/services/auth_service.dart';
+import 'package:alc_eljadida_tests/services/test_results_service.dart';
+import 'package:alc_eljadida_tests/models/test_result.dart';
+import 'package:alc_eljadida_tests/services/firestore_service.dart';
+import 'package:alc_eljadida_tests/screens/home_page.dart';
+import 'package:alc_eljadida_tests/services/score_calculator.dart';
 
 class GrammarTestPage extends StatefulWidget {
   final Duration? remainingTime;
   final String firstName;
   final String lastName;
-  final VoidCallback? onTestComplete;
+  final Function(Duration, int)? onTestComplete;
   
   const GrammarTestPage({
     Key? key, 
@@ -32,57 +32,269 @@ class GrammarTestPage extends StatefulWidget {
 class _GrammarTestPageState extends State<GrammarTestPage> {
   int _currentQuestionIndex = 0;
   String? _selectedAnswer;
-  final int _totalTimeInMinutes = 15;
+  final int _totalTimeInMinutes = 15;  // Test duration in minutes
   late Timer _timer;
-  late Duration _remainingTime;
+  Duration _remainingTime = Duration(minutes: 15);  // Also update this to match
   double _progress = 1.0;
   final TestSessionService _testSessionService = TestSessionService();
-  final Map<int, String> _userAnswers = {};  // Add this line
+  final Map<int, String> _userAnswers = {};
+  DateTime _startTime = DateTime.now();
 
-  // Example grammar questions with different types
   final List<Map<String, dynamic>> _questions = [
-    {
-      'type': 'multiple_choice',
-      'question': 'Choose the correct form of the verb:',
-      'sentence': 'If I _____ rich, I would buy a house.',
-      'options': ['am', 'were', 'was', 'be'],
-      'correctAnswer': 'were',
-      'explanation': 'In second conditional sentences, we use "were" for all subjects.'
-    },
-    {
-      'type': 'error_identification',
-      'question': 'Identify the error in this sentence:',
-      'sentence': 'Neither of the students have completed their assignments.',
-      'options': [
-        'Neither of',
-        'the students',
-        'have completed',
-        'their assignments'
-      ],
-      'correctAnswer': 'have completed',
-      'explanation': '"Neither" is singular, so it should be "has completed".'
-    },
-    {
-      'type': 'sentence_improvement',
-      'question': 'Choose the best way to improve this sentence:',
-      'sentence': 'The book was very interesting and I liked it very much.',
-      'options': [
-        'The book was very interesting and I liked it a lot.',
-        'I found the book fascinating.',
-        'The book had much interest for me.',
-        'It was a very interesting book that I liked.'
-      ],
-      'correctAnswer': 'I found the book fascinating.',
-      'explanation': 'This version is more concise and avoids repetition.'
-    },
-  ];
+  {
+    'question': 'Complete the sentence:',
+    'sentence': 'My daughter sometimes _____ to school with her friends.',
+    'options': ['walk', 'walks', 'walking', 'not walk'],
+    'correctAnswer': 'walks'
+  },
+  {
+    'question': 'Complete the question:',
+    'sentence': '_____ eat dinner on Sundays?',
+    'options': [
+      'Where your family',
+      'How is your family',
+      'When your family do',
+      'What time does your family'
+    ],
+    'correctAnswer': 'What time does your family'
+  },
+  {
+    'question': 'Choose the correct form:',
+    'sentence': '_____ a lot of people in the park today.',
+    'options': ['There', 'There\'s', 'There are', 'There is no'],
+    'correctAnswer': 'There are'
+  },
+  {
+    'question': 'Complete the sentence:',
+    'sentence': '_____, but I\'m not very good.',
+    'options': [
+      'I can play the guitar',
+      'I don\'t play the guitar',
+      'I play the guitar very well',
+      'I can\'t play the guitar well'
+    ],
+    'correctAnswer': 'I can play the guitar'
+  },
+  {
+    'question': 'Complete the sentence:',
+    'sentence': 'We had a nice vacation. The weather _____ beautiful.',
+    'options': ['did', 'was', 'does', 'were'],
+    'correctAnswer': 'was'
+  },
+  {
+    'question': 'Complete the sentence:',
+    'sentence': 'Tom _____ home right now. He\'s still at the office.',
+    'options': [
+      'isn\'t driving',
+      'doesn\'t drive',
+      'didn\'t drive',
+      'drives'
+    ],
+    'correctAnswer': 'isn\'t driving'
+  },
+  {
+    'question': 'Complete the question:',
+    'sentence': 'Is it true? _____ a grandparent yesterday?',
+    'options': [
+      'Are you becoming',
+      'Does she become',
+      'Did he become',
+      'They became'
+    ],
+    'correctAnswer': 'Did he become'
+  },
+  {
+    'question': 'Complete the sentence:',
+    'sentence': 'I go to the gym _____ evenings. I only don\'t go on the weekend.',
+    'options': ['some', 'most', 'all of the', 'many of the'],
+    'correctAnswer': 'most'
+  },
+  {
+    'question': 'Complete the sentence:',
+    'sentence': 'Susan\'s cousin is _____ player on our soccer team.',
+    'options': ['bad', 'best', 'worse', 'the worst'],
+    'correctAnswer': 'the worst'
+  },
+  {
+    'question': 'Complete the sentence:',
+    'sentence': 'Our neighbor _____ the screen of his phone twice last year.',
+    'options': ['breaks', 'is breaking', 'has broken', 'broke'],
+    'correctAnswer': 'broke'
+  },
+  {
+    'question': 'Complete the dialogue:',
+    'sentence': 'A: I can\'t forget to make a reservation at the restaurant before noon.\nB: Don\'t worry. _____ you.',
+    'options': [
+      'I\'m reminding',
+      'I\'ve reminded',
+      'I\'ll remind',
+      'I remind'
+    ],
+    'correctAnswer': 'I\'ll remind'
+  },
+  {
+    'question': 'Complete the sentence:',
+    'sentence': 'We _____ for a hotel when the storm began.',
+    'options': ['search', 'will search', 'have searched', 'were searching'],
+    'correctAnswer': 'were searching'
+  },
+  {
+    'question': 'Complete the sentence:',
+    'sentence': 'If you _____ concentrate on your work, you usually waste a lot of time.',
+    'options': ['don\'t', 'won\'t', 'didn\'t', 'couldn\'t'],
+    'correctAnswer': 'don\'t'
+  },
+  {
+    'question': 'Complete the sentence:',
+    'sentence': 'I\'m exhausted. _____ to fix this machine since I got here this morning.',
+    'options': ['I try', 'I\'ll try', 'I tried', 'I\'ve been trying'],
+    'correctAnswer': 'I\'ve been trying'
+  },
+  {
+    'question': 'Complete the sentence:',
+    'sentence': 'Several bridges _____ during the earthquake last year.',
+    'options': [
+      'badly damaged',
+      'were badly damaged',
+      'have badly damaged',
+      'were badly damaging'
+    ],
+    'correctAnswer': 'were badly damaged'
+  },
+  {
+    'question': 'Complete the sentence:',
+    'sentence': 'The agency _____ that our ideas for the poster seem a little old-fashioned.',
+    'options': ['believes', 'is believing', 'was believed', 'has been believing'],
+    'correctAnswer': 'believes'
+  },
+  {
+    'question': 'Complete the sentence:',
+    'sentence': 'Superhero movies are a kind of entertainment _____ really attracted to.',
+    'options': ['which', 'I\'m not', 'who they', 'that aren\'t'],
+    'correctAnswer': 'I\'m not'
+  },
+  {
+    'question': 'Complete the sentence:',
+    'sentence': 'More support _____ to groups dealing with environmental issues.',
+    'options': [
+      'is providing',
+      'might provide',
+      'must be provided',
+      'should be providing'
+    ],
+    'correctAnswer': 'must be provided'
+  },
+  {
+    'question': 'Complete the sentence:',
+    'sentence': 'Employees _____ show their ID cards, or they couldn\'t have access to the research facilities.',
+    'options': [
+      'were required to',
+      'were allowed to',
+      'didn\'t have to',
+      'could'
+    ],
+    'correctAnswer': 'were required to'
+  },
+  {
+    'question': 'Complete the sentence:',
+    'sentence': 'Our math teacher made _____ a hundred math problems in one hour.',
+    'options': ['us to solve', 'be solved', 'us solve', 'solve'],
+    'correctAnswer': 'us solve'
+  },
+  {
+    'question': 'Complete the sentence:',
+    'sentence': 'The process _____ be very time-consuming before they launched the new system.',
+    'options': ['might', 'would', 'ought to', 'used to'],
+    'correctAnswer': 'used to'
+  },
+  {
+    'question': 'Complete the sentence:',
+    'sentence': 'After some time together, those on John\'s team learned not to underestimate _____.',
+    'options': ['each other', 'himself', 'another', 'itself'],
+    'correctAnswer': 'each other'
+  },
+  {
+    'question': 'Complete the sentence:',
+    'sentence': 'The man next door asked me _____ keep an eye on his apartment while he was away.',
+    'options': ['I can', 'would I', 'if I could', 'whether will I'],
+    'correctAnswer': 'if I could'
+  },
+  {
+    'question': 'Complete the sentence:',
+    'sentence': 'Our niece is very hardworking and determined. She has never had any trouble _____ her exams.',
+    'options': ['to pass', 'passing', 'passed', 'pass'],
+    'correctAnswer': 'passing'
+  },
+  {
+    'question': 'Complete the sentence:',
+    'sentence': 'If they _____ the damage more carefully, they would have found these other problems.',
+    'options': [
+      'would assess',
+      'had assessed',
+      'have assessed',
+      'would have assessed'
+    ],
+    'correctAnswer': 'had assessed'
+  },
+  {
+    'question': 'Complete the sentence:',
+    'sentence': 'By this time next Monday, _____ a new head of the sales department.',
+    'options': [
+      'we hire',
+      'we\'re hiring',
+      'we\'ll have hired',
+      'we have been hiring'
+    ],
+    'correctAnswer': 'we\'ll have hired'
+  },
+  {
+    'question': 'Complete the sentence:',
+    'sentence': 'The consultants proposed a number of alternatives, _____ the firm disregarded.',
+    'options': [
+      'much of what',
+      'many of which',
+      'some of whom',
+      'none of whose'
+    ],
+    'correctAnswer': 'many of which'
+  },
+  {
+    'question': 'Complete the sentence:',
+    'sentence': 'What _____ a couple of relaxing days at an unspoiled beach.',
+    'options': [
+      'they actually plan',
+      'did they actually plan',
+      'they actually planned was',
+      'have they actually planned are'
+    ],
+    'correctAnswer': 'they actually planned was'
+  },
+  {
+    'question': 'Complete the sentence:',
+    'sentence': 'We felt genuinely shocked. Never again _____ at such an overrated place.',
+    'options': [
+      'ate we',
+      'we will eat',
+      'did eat we',
+      'would we eat'
+    ],
+    'correctAnswer': 'would we eat'
+  },
+  {
+    'question': 'Complete the sentence:',
+    'sentence': 'Authorities recommend that everyone _____ the highway until repairs are completed.',
+    'options': ['avoid', 'avoided', 'would avoid', 'is going to avoid'],
+    'correctAnswer': 'avoid'
+  }
+];
+
 
   @override
   void initState() {
     super.initState();
-    // Initialize remaining time from widget parameter if available
     _remainingTime = widget.remainingTime ?? Duration(minutes: _totalTimeInMinutes);
     _initializeTimer();
+    _startTime = DateTime.now();
   }
 
   Future<void> _initializeTimer() async {
@@ -93,7 +305,6 @@ class _GrammarTestPageState extends State<GrammarTestPage> {
         _progress = _remainingTime.inSeconds / (_totalTimeInMinutes * 60);
       });
     } else {
-      // Start new test
       await _testSessionService.startGrammarTest();
       setState(() {
         _remainingTime = Duration(minutes: _totalTimeInMinutes);
@@ -114,7 +325,7 @@ class _GrammarTestPageState extends State<GrammarTestPage> {
         return;
       }
 
-      if (mounted) {  // Add mounted check
+      if (mounted) {
         setState(() {
           _remainingTime = remainingTime;
           _progress = _remainingTime.inSeconds / (_totalTimeInMinutes * 60);
@@ -122,110 +333,137 @@ class _GrammarTestPageState extends State<GrammarTestPage> {
       }
     });
   }
+  
 
-  void _handleTimeUp() async {
+  Future<void> _handleTimeUp() async {
+    // Cancel timer and update state immediately
     _timer.cancel();
     await _testSessionService.endGrammarTest();
     await _testSessionService.markTestAsCompleted('grammar');
-    
-    if (!mounted) return;
 
-    // Calculate score
-    int correctAnswers = 0;
-    _questions.asMap().forEach((index, question) {
-      if (_userAnswers[index] == question['correctAnswer']) {
-        correctAnswers++;
-      }
-    });
-
-    // Get user data
-    final AuthService _authService = AuthService();
-    final userId = _authService.getUserId();
-    String firstName = 'User';  // Default value
-    String lastName = '';
+    int correctAnswers = _calculateRawScore();
+    final standardizedScore = ScoreCalculator.calculateGrammarScore(
+      correctAnswers,
+      _questions.length
+    );
     
-    if (userId != null) {
-      try {
-        final url = Uri.parse('https://${_authService.projectId}-default-rtdb.firebaseio.com/users/$userId.json');
-        final response = await http.get(url);
-        
-        if (response.statusCode == 200) {
-          final userData = json.decode(response.body);
-          firstName = userData['firstName'] ?? 'User';
-          lastName = userData['lastName'] ?? '';
-        }
-      } catch (e) {
-        print('Error loading user data: $e');
-      }
+    final testDuration = DateTime.now().difference(_startTime);
+    
+    // Store completion status, score and duration
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('grammar_test_completed', true);
+    await prefs.setInt('grammar_test_score', standardizedScore);
+    await prefs.setInt('grammar_test_duration', testDuration.inSeconds);
+    
+    // Notify parent
+    widget.onTestComplete?.call(testDuration, standardizedScore);
+
+    try {
+      final authService = AuthService();
+      final testResultsService = TestResultsService(authService.projectId);
+      
+      final userId = await authService.getUserId();
+      final result = TestResult(
+        userId: userId ?? 'anonymous',
+        firstName: widget.firstName,
+        lastName: widget.lastName,
+        testType: 'Grammar Test',
+        score: standardizedScore,
+        totalQuestions: _questions.length,
+        timestamp: DateTime.now(),
+      );
+      
+      await testResultsService.saveTestResult(result);
+    } catch (e) {
+      print('Error saving test result: $e');
     }
 
-    if (!mounted) return;
-
-    // Navigate to results page with all required parameters
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (context) => GrammarTestResultsPage(
-          score: correctAnswers,
-          totalQuestions: _questions.length,
-          firstName: firstName,
-          lastName: lastName,
-        ),
-      ),
-    );
+    if (mounted) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (context) => HomePage()),
+        (route) => false,
+      );
+    }
   }
 
   int _calculateScore() {
-    int score = 0;
-    for (int i = 0; i < _questions.length; i++) {
-      if (_userAnswers[i] == _questions[i]['correctAnswer']) {
-        score++;
-      }
-    }
-    return score;
+    int correctAnswers = _calculateRawScore();
+    return ScoreCalculator.calculateGrammarScore(correctAnswers, _questions.length);
   }
 
-  void _handleTestCompletion() async {
-    await _testSessionService.markTestAsCompleted('grammar');
-    
-    // Calculate score
-    int score = _calculateScore();
-  
+  Future<void> _handleTestCompletion() async {
+    try {
+      _timer.cancel();
+      await _testSessionService.endGrammarTest();
+      await _testSessionService.markTestAsCompleted('grammar');
+      
+      // Calculate scores
+      int correctAnswers = _calculateRawScore();
+      final standardizedScore = ScoreCalculator.calculateGrammarScore(
+        correctAnswers, 
+        _questions.length
+      );
+      
+      final testDuration = DateTime.now().difference(_startTime);
+      
+      // Save test data
+      final prefs = await SharedPreferences.getInstance();
+      await Future.wait([
+        prefs.setInt('grammar_test_score', standardizedScore),
+        prefs.setInt('grammar_test_duration', testDuration.inSeconds),
+        prefs.setBool('grammar_test_completed', true),
+        prefs.setInt('grammar_total_questions', _questions.length),
+      ]);
 
-    // Get user data
-    final AuthService _authService = AuthService();
-    final userId = _authService.getUserId();
-    String firstName = 'User';  // Default value
-    String lastName = '';
-    
-    if (userId != null) {
-      try {
-        final url = Uri.parse('https://${_authService.projectId}-default-rtdb.firebaseio.com/users/$userId.json');
-        final response = await http.get(url);
-        
-        if (response.statusCode == 200) {
-          final userData = json.decode(response.body);
-          firstName = userData['firstName'] ?? 'User';
-          lastName = userData['lastName'] ?? '';
-        }
-      } catch (e) {
-        print('Error loading user data: $e');
-      }
-    }
-
-    if (!mounted) return;
-
-    // Navigate to results page with all required parameters
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (context) => GrammarTestResultsPage(
-          score: score,
-          totalQuestions: _questions.length,
-          firstName: firstName,
-          lastName: lastName,
+      // Save to Firestore
+      final authService = AuthService();
+      final testResultsService = TestResultsService(authService.projectId);
+      
+      final userId = await authService.getUserId();
+      final result = TestResult(
+        userId: userId ?? 'anonymous',
+        firstName: widget.firstName,
+        lastName: widget.lastName,
+        testType: 'Grammar Test',
+        score: standardizedScore,
+        totalQuestions: _questions.length,
+        timestamp: DateTime.now(),
+      );
+      
+      await testResultsService.saveTestResult(result);
+      widget.onTestComplete?.call(testDuration, standardizedScore);
+      
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (context) => HomePage()),
+        (route) => false,
+      );
+      
+    } catch (e) {
+      print('Error completing grammar test: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to save test result. Please try again.'),
+          action: SnackBarAction(
+            label: 'Retry',
+            onPressed: _handleTestCompletion,
+          ),
         ),
-      ),
-    );
+      );
+    }
   }
+
+  // Helper method to calculate raw score
+  int _calculateRawScore() {
+    int correctAnswers = 0;
+    for (int i = 0; i < _questions.length; i++) {
+        if (_userAnswers.length > i && _userAnswers[i] == _questions[i]['correctAnswer']) {
+            correctAnswers++;
+        }
+    }
+    return correctAnswers;
+}
 
   @override
   void dispose() {
@@ -241,13 +479,7 @@ class _GrammarTestPageState extends State<GrammarTestPage> {
       appBar: AppBar(
         elevation: 0,
         backgroundColor: Colors.white,
-        leading: IconButton(
-          icon: Icon(
-            Icons.arrow_back_ios_new,
-            color: Color(0xFF2193b0),
-          ),
-          onPressed: () => Navigator.of(context).pop(),
-        ),
+        automaticallyImplyLeading: false,
         title: Row(
           children: [
             Icon(
@@ -270,35 +502,34 @@ class _GrammarTestPageState extends State<GrammarTestPage> {
         actions: [
           Container(
             margin: EdgeInsets.only(right: 16),
-            padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            decoration: BoxDecoration(
-              border: Border.all(color: Color(0xFF2193b0)),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.help_outline,
-                  color: Color(0xFF2193b0),
-                  size: 20,
+            child: TextButton.icon(
+              style: TextButton.styleFrom(
+                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20),
+                  side: BorderSide(color: Colors.red.shade400),
                 ),
-                SizedBox(width: 8),
-                Text(
-                  'Help',
-                  style: GoogleFonts.poppins(
-                    color: Color(0xFF2193b0),
-                    fontWeight: FontWeight.w500,
-                  ),
+              ),
+              icon: Icon(
+                Icons.exit_to_app,
+                color: Colors.red.shade400,
+                size: 20,
+              ),
+              label: Text(
+                'Exit Test',
+                style: GoogleFonts.poppins(
+                  color: Colors.red.shade400,
+                  fontWeight: FontWeight.w500,
                 ),
-              ],
+              ),
+              onPressed: () => _showExitConfirmation(context),
             ),
           ),
         ],
-        toolbarHeight: 72, // Increased height for desktop
+        toolbarHeight: 72,
       ),
       body: Column(
         children: [
-          // Main content - updated layout
           Expanded(
             child: Container(
               decoration: BoxDecoration(
@@ -309,20 +540,18 @@ class _GrammarTestPageState extends State<GrammarTestPage> {
                 ),
               ),
               child: Padding(
-                padding: const EdgeInsets.all(32.0), // Reduced padding
+                padding: const EdgeInsets.all(32.0),
                 child: Row(
                   children: [
-                    // Question Card (Left side)
                     Expanded(
                       flex: 2,
                       child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch, // Makes children match parent width
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          // Question Card (Upper)
                           Expanded(
                             flex: 4,
                             child: Card(
-                              margin: EdgeInsets.zero, // Removes default card margin
+                              margin: EdgeInsets.zero,
                               elevation: 8,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(24),
@@ -350,7 +579,7 @@ class _GrammarTestPageState extends State<GrammarTestPage> {
                                     ),
                                     SizedBox(height: 24),
                                     Container(
-                                      width: double.infinity, // Makes container match parent width
+                                      width: double.infinity,
                                       padding: EdgeInsets.all(20),
                                       decoration: BoxDecoration(
                                         color: Colors.grey[100],
@@ -370,9 +599,8 @@ class _GrammarTestPageState extends State<GrammarTestPage> {
                             ),
                           ),
                           SizedBox(height: 16),
-                          // Timer Card (Lower)
                           Card(
-                            margin: EdgeInsets.zero, // Removes default card margin
+                            margin: EdgeInsets.zero,
                             elevation: 8,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(24),
@@ -439,7 +667,6 @@ class _GrammarTestPageState extends State<GrammarTestPage> {
                       ),
                     ),
                     SizedBox(width: 32),
-                    // Options Card (Right side)
                     Expanded(
                       child: Card(
                         elevation: 8,
@@ -447,7 +674,7 @@ class _GrammarTestPageState extends State<GrammarTestPage> {
                           borderRadius: BorderRadius.circular(24),
                         ),
                         child: Padding(
-                          padding: const EdgeInsets.all(24.0), // Reduced padding
+                          padding: const EdgeInsets.all(24.0),
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
@@ -480,73 +707,20 @@ class _GrammarTestPageState extends State<GrammarTestPage> {
                                 onPressed: _selectedAnswer != null
                                     ? () async {
                                         if (_currentQuestionIndex < _questions.length - 1) {
-                                          // Continue to next question
                                           setState(() {
-                                            if (_selectedAnswer != null) {  // Add null check
-                                              _userAnswers[_currentQuestionIndex] = _selectedAnswer!;  // Use ! operator
+                                            if (_selectedAnswer != null) {
+                                              _userAnswers[_currentQuestionIndex] = _selectedAnswer!;
                                             }
                                             _currentQuestionIndex++;
                                             _selectedAnswer = null;
                                           });
                                         } else {
                                           // Save last answer
-                                          if (_selectedAnswer != null) {  // Add null check
-                                            _userAnswers[_currentQuestionIndex] = _selectedAnswer!;  // Use ! operator
+                                          if (_selectedAnswer != null) {
+                                            _userAnswers[_currentQuestionIndex] = _selectedAnswer!;
                                           }
                                           
-                                          // Calculate score
-                                          int score = 0;
-                                          _userAnswers.forEach((index, answer) {
-                                            if (answer == _questions[index]['correctAnswer']) {
-                                              score++;
-                                            }
-                                          });
-                                          
-                                          final authService = AuthService();
-                                          final testResultsService = TestResultsService(authService.projectId);
-                                          
-                                          final result = TestResult(
-                                            userId: authService.getUserId() ?? 'anonymous',
-                                            firstName: widget.firstName,
-                                            lastName: widget.lastName,
-                                            testType: 'Grammar Test',
-                                            score: score,
-                                            totalQuestions: _questions.length,
-                                            timestamp: DateTime.now(),
-                                          );
-                                          
-                                          try {
-                                            // Stop the timer
-                                            _timer.cancel();
-                                            
-                                            // Mark test as completed
-                                            await _testSessionService.markTestAsCompleted('grammar');
-                                            
-                                            // Save test result
-                                            await testResultsService.saveTestResult(result);
-                                            
-                                            if (!mounted) return;
-                                            
-                                            // Update UI to show completion
-                                            widget.onTestComplete?.call();
-                                            
-                                            // Navigate to results page
-                                            Navigator.of(context).pushReplacement(
-                                              MaterialPageRoute(
-                                                builder: (context) => GrammarTestResultsPage(
-                                                  score: score,
-                                                  totalQuestions: _questions.length,
-                                                  firstName: widget.firstName,
-                                                  lastName: widget.lastName,
-                                                ),
-                                              ),
-                                            );
-                                          } catch (e) {
-                                            if (!mounted) return;
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              SnackBar(content: Text('Failed to save test result')),
-                                            );
-                                          }
+                                          await _handleTestCompletion();
                                         }
                                       }
                                     : null,
@@ -590,7 +764,6 @@ class _GrammarTestPageState extends State<GrammarTestPage> {
     );
   }
 
-  // Update the option button to match reading screen style
   Widget _buildOptionButton(String option) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -605,14 +778,14 @@ class _GrammarTestPageState extends State<GrammarTestPage> {
           ),
         ),
         child: InkWell(
-          borderRadius: BorderRadius.circular(24), // Increased radius
+          borderRadius: BorderRadius.circular(24),
           onTap: () {
             setState(() {
               _selectedAnswer = option;
             });
           },
           child: Container(
-            padding: EdgeInsets.all(24), // Increased padding
+            padding: EdgeInsets.all(24),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(24),
               gradient: _selectedAnswer == option
@@ -629,8 +802,8 @@ class _GrammarTestPageState extends State<GrammarTestPage> {
             child: Row(
               children: [
                 Container(
-                  width: 28, // Increased size
-                  height: 28, // Increased size
+                  width: 28,
+                  height: 28,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     border: Border.all(
@@ -651,12 +824,12 @@ class _GrammarTestPageState extends State<GrammarTestPage> {
                         )
                       : null,
                 ),
-                SizedBox(width: 20), // Increased spacing
+                SizedBox(width: 20),
                 Expanded(
                   child: Text(
                     option,
                     style: GoogleFonts.poppins(
-                      fontSize: 18, // Increased font size
+                      fontSize: 18,
                       color: _selectedAnswer == option 
                           ? Color(0xFF2193b0) 
                           : Colors.black87,
@@ -681,11 +854,223 @@ class _GrammarTestPageState extends State<GrammarTestPage> {
     return "$minutes:$seconds";
   }
 
-  // Update the answer selection method
-  void _handleAnswerSelection(String answer) {
-    setState(() {
-      _selectedAnswer = answer;
-      _userAnswers[_currentQuestionIndex] = answer;
-    });
+  Future<void> _showExitConfirmation(BuildContext context) async {
+    final bool? shouldExit = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          elevation: 16,
+          child: Container(
+            width: 400, // Fixed width for the dialog
+            padding: EdgeInsets.all(32),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(24),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Colors.white,
+                  Colors.grey.shade50,
+                ],
+              ),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade50,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.warning_rounded,
+                    size: 48,
+                    color: Colors.red.shade400,
+                  ),
+                ),
+                SizedBox(height: 24),
+                
+                Text(
+                  'Exit Test?',
+                  style: GoogleFonts.poppins(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF2193b0),
+                  ),
+                ),
+                SizedBox(height: 16),
+                
+                Container(
+                  padding: EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade50,
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: Colors.grey.shade200,
+                    ),
+                  ),
+                  child: Column(
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.info_outline,
+                            color: Colors.grey[600],
+                            size: 20,
+                          ),
+                          SizedBox(width: 12),
+                          Expanded(
+                            child: Text(
+                              'Are you sure you want to exit?',
+                              style: GoogleFonts.poppins(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w500,
+                                color: Colors.grey[800],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: 12),
+                      Text(
+                        'This will mark the test as completed with your current progress.',
+                        style: GoogleFonts.poppins(
+                          fontSize: 14,
+                          color: Colors.grey[600],
+                          height: 1.5,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                SizedBox(height: 32),
+                
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.of(context).pop(false),
+                      style: TextButton.styleFrom(
+                        padding: EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Text(
+                        'Cancel',
+                        style: GoogleFonts.poppins(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.grey[600],
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: 16),
+                    
+                    ElevatedButton(
+                      onPressed: () => Navigator.of(context).pop(true),
+                      style: ElevatedButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: Ink(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [Colors.red.shade400, Colors.red.shade600],
+                            begin: Alignment.centerLeft,
+                            end: Alignment.centerRight,
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Container(
+                          padding: EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.exit_to_app, color: Colors.white),
+                              SizedBox(width: 8),
+                              Text(
+                                'Exit Test',
+                                style: GoogleFonts.poppins(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (shouldExit == true) {
+      // Cancel timer and mark test as completed
+      _timer.cancel();
+      await _testSessionService.endGrammarTest();
+      await _testSessionService.markTestAsCompleted('grammar');
+
+      // Calculate scores
+      int correctAnswers = _calculateRawScore();
+      final standardizedScore = ScoreCalculator.calculateGrammarScore(
+        correctAnswers,
+        _questions.length
+      );
+      
+      final testDuration = DateTime.now().difference(_startTime);
+      
+      // Store completion status, score and duration
+      final prefs = await SharedPreferences.getInstance();
+      await Future.wait([
+        prefs.setBool('grammar_test_completed', true),
+        prefs.setInt('grammar_test_score', standardizedScore),
+        prefs.setInt('grammar_test_duration', testDuration.inSeconds),
+        prefs.setInt('grammar_total_questions', _questions.length),
+      ]);
+
+      try {
+        final authService = AuthService();
+        final testResultsService = TestResultsService(authService.projectId);
+        
+        final userId = await authService.getUserId();
+        final result = TestResult(
+          userId: userId ?? 'anonymous',
+          firstName: widget.firstName,
+          lastName: widget.lastName,
+          testType: 'Grammar Test',
+          score: standardizedScore,
+          totalQuestions: _questions.length,
+          timestamp: DateTime.now(),
+        );
+        
+        await testResultsService.saveTestResult(result);
+      } catch (e) {
+        print('Error saving test result: $e');
+      }
+
+      // Notify parent
+      widget.onTestComplete?.call(testDuration, standardizedScore);
+
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => HomePage()),
+          (route) => false,
+        );
+      }
+    }
   }
 }

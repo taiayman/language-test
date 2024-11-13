@@ -1,5 +1,5 @@
-name: test_windows_students
-description: "A new Flutter project."
+name: alc_eljadida_tests
+description: ALC El Jadida Tests Application
 publish_to: 'none'
 version: 1.0.0+1
 
@@ -11,7 +11,7 @@ dependencies:
     sdk: flutter
   http: ^1.2.2
   google_fonts: ^5.1.0
-  file_picker: ^5.3.3
+  file_picker: ^6.1.1
   path_provider: ^2.0.15
   file_selector: ^1.0.1
   supabase_flutter: ^1.10.25
@@ -21,6 +21,14 @@ dependencies:
   # For Android
   just_audio_background: ^0.0.1-beta.10
   just_audio_windows: ^0.2.2
+  intl: ^0.17.0
+  media_kit: ^1.1.10
+  media_kit_video: ^1.2.4
+  media_kit_libs_windows_video: ^1.0.9
+  media_kit_libs_windows_audio: ^1.0.9
+  pdf: ^3.10.7
+  printing: ^5.11.1
+
 
 dependency_overrides:
   # Add this section to ensure Windows compatibility
@@ -36,6 +44,17 @@ flutter:
 
   assets:
     - assets/image_login.png
+    - assets/logo_app.jpg
     - assets/audio/situation1.mp3
     - assets/audio/situation2.mp3
-    # Add any other assets you need here
+    - assets/audio/situation3.mp3
+    - assets/audio/situation4.mp3
+    - assets/audio/situation5.mp3
+    - assets/audio/situation6.mp3
+    - assets/audio/situation7.mp3
+    - assets/audio/situation8.mp3
+    - assets/audio/situation9.mp3
+    - assets/videos/listening_instructions.mp4
+    - assets/videos/reading_instructions.mp4
+    - assets/videos/grammar_instructions.mp4
+

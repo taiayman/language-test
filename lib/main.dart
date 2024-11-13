@@ -1,13 +1,19 @@
 import 'package:flutter/material.dart';
-import 'package:test_windows_students/screens/home_page.dart';
-import 'package:test_windows_students/screens/registration_page.dart';
+import 'package:alc_eljadida_tests/screens/instruction_page.dart';
+import 'package:alc_eljadida_tests/screens/registration_page.dart';
+import 'package:alc_eljadida_tests/services/auth_service.dart';
+import 'package:media_kit/media_kit.dart';
 
-void main() {
-  runApp(const MyApp());
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  MediaKit.ensureInitialized();
+  runApp(MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({Key? key}) : super(key: key);
+  final AuthService _authService = AuthService();
+
+  MyApp({Key? key}) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
@@ -17,12 +23,27 @@ class MyApp extends StatelessWidget {
         primarySwatch: Colors.blue,
         scaffoldBackgroundColor: Colors.white,
       ),
-      // Remove the home property and use routes instead
-      initialRoute: '/',
-      routes: {
-        '/': (context) => const RegistrationPage(),
-        '/home': (context) => const HomePage(),
-      },
+      debugShowCheckedModeBanner: false,
+      home: FutureBuilder<bool>(
+        future: _authService.isLoggedIn(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return Scaffold(
+              body: Center(
+                child: CircularProgressIndicator(
+                  color: Color(0xFF2193b0),
+                ),
+              ),
+            );
+          }
+
+          if (snapshot.data == true) {
+            return InstructionPage();
+          }
+
+          return RegistrationPage();
+        },
+      ),
     );
   }
 }

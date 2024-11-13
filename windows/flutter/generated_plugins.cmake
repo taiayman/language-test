@@ -6,6 +6,11 @@ list(APPEND FLUTTER_PLUGIN_LIST
   app_links
   file_selector_windows
   just_audio_windows
+  media_kit_libs_windows_audio
+  media_kit_libs_windows_video
+  media_kit_video
+  printing
+  screen_brightness_windows
   url_launcher_windows
 )
 

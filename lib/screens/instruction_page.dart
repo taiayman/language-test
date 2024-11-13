@@ -26,12 +26,36 @@ class _InstructionPageState extends State<InstructionPage> {
       icon: MaterialCommunityIcons.book_open_variant,
     ),
     InstructionSlide(
-      title: 'Time Management',
-      content: 'Pay attention to the timer for each section. Make sure to answer all questions within the allotted time.',
-      icon: MaterialCommunityIcons.clock_outline,
+      title: 'Language in Use',
+      content: 'Test your grammar and vocabulary knowledge through multiple choice questions. Pay attention to sentence structure and word usage.',
+      icon: MaterialCommunityIcons.translate,  // Changed icon to be more appropriate
     ),
     // ... Ajoutez plus de diapositives si nécessaire
   ];
+
+  // Add progress indicator
+  Widget _buildProgressIndicator() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 20), // Added vertical padding
+      margin: const EdgeInsets.only(top: 20), // Added top margin
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center, // Center the indicators
+        children: List.generate(_slides.length, (index) {
+          return Container(
+            width: 80, // Fixed width instead of Expanded
+            height: 6, // Slightly taller
+            margin: const EdgeInsets.symmetric(horizontal: 8), // Increased spacing
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(3),
+              color: _currentPage >= index
+                  ? const Color(0xFF2193b0)
+                  : Colors.grey.withOpacity(0.3),
+            ),
+          );
+        }),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -49,10 +73,19 @@ class _InstructionPageState extends State<InstructionPage> {
         ),
         child: Row(
           children: [
-            // Sidebar
+            // Enhanced Sidebar
             Container(
-              width: 250,
-              color: Colors.white.withOpacity(0.9),
+              width: 280, // Slightly wider
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(0.95),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.1),
+                    blurRadius: 10,
+                    offset: const Offset(0, 0),
+                  ),
+                ],
+              ),
               padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -87,12 +120,24 @@ class _InstructionPageState extends State<InstructionPage> {
                 ],
               ),
             ),
-            // Main content
+            // Enhanced Main content
             Expanded(
               child: Container(
-                color: Colors.white.withOpacity(0.9),
+                margin: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(32),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.1),
+                      blurRadius: 20,
+                      offset: const Offset(0, 0),
+                    ),
+                  ],
+                ),
                 child: Column(
                   children: [
+                    _buildProgressIndicator(), // Add progress indicator
                     Expanded(
                       child: PageView.builder(
                         controller: _pageController,
@@ -185,16 +230,24 @@ class _InstructionPageState extends State<InstructionPage> {
     );
   }
 
+  // Update the slide building method
   Widget _buildSlide(InstructionSlide slide) {
     return Padding(
       padding: const EdgeInsets.all(40),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            slide.icon,
-            size: 100,
-            color: const Color(0xFF2193b0),
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: const Color(0xFF2193b0).withOpacity(0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              slide.icon,
+              size: 80,
+              color: const Color(0xFF2193b0),
+            ),
           ),
           const SizedBox(height: 40),
           Text(
@@ -206,10 +259,17 @@ class _InstructionPageState extends State<InstructionPage> {
             ),
           ),
           const SizedBox(height: 20),
-          Text(
-            slide.content,
-            textAlign: TextAlign.center,
-            style: GoogleFonts.poppins(fontSize: 18),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 40),
+            child: Text(
+              slide.content,
+              textAlign: TextAlign.center,
+              style: GoogleFonts.poppins(
+                fontSize: 18,
+                height: 1.6,
+                color: Colors.black87,
+              ),
+            ),
           ),
         ],
       ),

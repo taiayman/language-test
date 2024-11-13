@@ -25,9 +25,9 @@ class TestSessionService {
   static const String _readingCompletedKey = 'reading_test_completed';
   static const String _grammarCompletedKey = 'grammar_test_completed';
   
-  static const int testDurationMinutes = 15;
-  static const int readingTestDurationMinutes = 20;
-  static const int grammarTestDurationMinutes = 15;  // Change this to 15
+  static const int testDurationMinutes = 15;  // Listening test duration
+  static const int readingTestDurationMinutes = 20;  // Reading test duration
+  static const int grammarTestDurationMinutes = 15;  // Grammar test duration
 
   // Add StreamController for test status
   static final _testStatusController = StreamController<TestStatus>.broadcast();
@@ -219,34 +219,27 @@ class TestSessionService {
 
   Future<void> markTestAsCompleted(String testType) async {
     final prefs = await SharedPreferences.getInstance();
-    switch (testType) {
-      case 'listening':
-        await prefs.setBool(_listeningCompletedKey, true);
-        await endListeningTest();
-        break;
-      case 'reading':
-        await prefs.setBool(_readingCompletedKey, true);
-        await endReadingTest();
-        break;
-      case 'grammar':
-        await prefs.setBool(_grammarCompletedKey, true);
-        await endGrammarTest();
-        break;
-    }
-    await _updateTestStatus();
+    await prefs.setBool('${testType}_test_completed', true);
   }
 
   Future<bool> isTestCompleted(String testType) async {
     final prefs = await SharedPreferences.getInstance();
-    switch (testType) {
-      case 'listening':
-        return prefs.getBool(_listeningCompletedKey) ?? false;
-      case 'reading':
-        return prefs.getBool(_readingCompletedKey) ?? false;
-      case 'grammar':
-        return prefs.getBool(_grammarCompletedKey) ?? false;
-      default:
-        return false;
-    }
+    return prefs.getBool('${testType}_test_completed') ?? false;
+  }
+
+  // Add methods to get test scores
+  Future<int?> getListeningTestScore() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt('listening_test_score');
+  }
+
+  Future<int?> getReadingTestScore() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt('reading_test_score');
+  }
+
+  Future<int?> getGrammarTestScore() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt('grammar_test_score');
   }
 }
