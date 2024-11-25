@@ -1199,34 +1199,46 @@ of adequate sleep to maintaining good mental and physical health.''',
       await _testSessionService.endReadingTest();
       await _testSessionService.markTestAsCompleted('reading');
       
-      // Calculate raw score
+      // Calculate raw score and prepare answers data
       int correctAnswers = 0;
-      int totalQuestions = 0;
+      final answersToSave = <Map<String, dynamic>>[];
       
-      // Count total questions and correct answers
+      // Process each passage and its questions
       for (int i = 0; i < _readingTests.length; i++) {
+        final passage = _readingTests[i]['passage'];
         final questions = _readingTests[i]['questions'] as List;
-        totalQuestions += questions.length;
         
         for (int j = 0; j < questions.length; j++) {
           final questionIndex = _getQuestionIndex(i, j);
-          if (_userAnswers.length > questionIndex && 
-              _userAnswers[questionIndex] == questions[j]['correctAnswer']) {
-            correctAnswers++;
-          }
+          final userAnswer = _userAnswers.length > questionIndex ? _userAnswers[questionIndex] : null;
+          final correctAnswer = questions[j]['correctAnswer'];
+          final isCorrect = userAnswer == correctAnswer;
+          
+          if (isCorrect) correctAnswers++;
+
+          answersToSave.add({
+            'passageNumber': i + 1,
+            'passage': passage,
+            'question': questions[j]['question'],
+            'userAnswer': userAnswer ?? 'No answer',
+            'correctAnswer': correctAnswer,
+            'isCorrect': isCorrect,
+            'options': questions[j]['options'],
+          });
         }
       }
       
-      // Calculate standardized score using ScoreCalculator
+      // Calculate standardized score
+      final totalQuestions = _getTotalQuestions();
       final standardizedScore = ScoreCalculator.calculateReadingScore(
         correctAnswers,
         totalQuestions
       );
 
-      // Calculate test duration
       final testDuration = DateTime.now().difference(_startTime);
+      final timestamp = DateTime.now();
       
-      // Save test data
+      // Save test data locally
       final prefs = await SharedPreferences.getInstance();
       await Future.wait([
         prefs.setInt('reading_test_score', standardizedScore),
@@ -1238,6 +1250,7 @@ of adequate sleep to maintaining good mental and physical health.''',
       // Save to Firestore
       final authService = AuthService();
       final testResultsService = TestResultsService(authService.projectId);
+      final firestoreService = FirestoreService();
       
       final userId = await authService.getUserId();
       final result = TestResult(
@@ -1247,10 +1260,20 @@ of adequate sleep to maintaining good mental and physical health.''',
         testType: 'Reading Test',
         score: standardizedScore,
         totalQuestions: totalQuestions,
-        timestamp: DateTime.now(),
+        timestamp: timestamp,
       );
       
-      await testResultsService.saveTestResult(result);
+      // Save both test result and detailed answers
+      await Future.wait([
+        testResultsService.saveTestResult(result),
+        firestoreService.saveTestAnswers(
+          firstName: widget.firstName,
+          lastName: widget.lastName,
+          testType: 'reading',
+          answers: answersToSave,
+          timestamp: timestamp,
+        ),
+      ]);
       
       // Notify parent
       widget.onTestComplete?.call(testDuration, standardizedScore);

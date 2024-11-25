@@ -167,6 +167,6 @@ class ScoreCalculator {
     if (totalScore >= 9) return 'Beg 3';
     if (totalScore >= 5) return 'Beg 2';
     if (totalScore >= 1) return 'Beg 1';
-    return 'Pre-Beg';
+    return 'Beg 1';
   }
 }

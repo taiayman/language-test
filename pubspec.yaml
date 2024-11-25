@@ -28,6 +28,7 @@ dependencies:
   media_kit_libs_windows_audio: ^1.0.9
   pdf: ^3.10.7
   printing: ^5.11.1
+  tutorial_coach_mark: ^1.2.11
 
 
 dependency_overrides:
@@ -54,7 +55,8 @@ flutter:
     - assets/audio/situation7.mp3
     - assets/audio/situation8.mp3
     - assets/audio/situation9.mp3
+    - assets/audio/test_exemple.mp3
     - assets/videos/listening_instructions.mp4
     - assets/videos/reading_instructions.mp4
     - assets/videos/grammar_instructions.mp4
-
+    - assets/videos/welcome_video.mp4

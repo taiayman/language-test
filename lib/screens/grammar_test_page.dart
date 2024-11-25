@@ -397,16 +397,36 @@ class _GrammarTestPageState extends State<GrammarTestPage> {
       await _testSessionService.endGrammarTest();
       await _testSessionService.markTestAsCompleted('grammar');
       
-      // Calculate scores
-      int correctAnswers = _calculateRawScore();
+      // Calculate scores and prepare answers data
+      int correctAnswers = 0;
+      final answersToSave = <Map<String, dynamic>>[];
+
+      // Process each question and answer
+      for (int i = 0; i < _questions.length; i++) {
+        final userAnswer = _userAnswers[i];
+        final correctAnswer = _questions[i]['correctAnswer'];
+        final isCorrect = userAnswer == correctAnswer;
+        
+        if (isCorrect) correctAnswers++;
+
+        answersToSave.add({
+          'question': _questions[i]['question'],
+          'sentence': _questions[i]['sentence'],
+          'userAnswer': userAnswer ?? 'No answer',
+          'correctAnswer': correctAnswer,
+          'isCorrect': isCorrect,
+        });
+      }
+
       final standardizedScore = ScoreCalculator.calculateGrammarScore(
         correctAnswers, 
         _questions.length
       );
       
       final testDuration = DateTime.now().difference(_startTime);
-      
-      // Save test data
+      final timestamp = DateTime.now();
+
+      // Save test data locally
       final prefs = await SharedPreferences.getInstance();
       await Future.wait([
         prefs.setInt('grammar_test_score', standardizedScore),
@@ -418,6 +438,7 @@ class _GrammarTestPageState extends State<GrammarTestPage> {
       // Save to Firestore
       final authService = AuthService();
       final testResultsService = TestResultsService(authService.projectId);
+      final firestoreService = FirestoreService();
       
       final userId = await authService.getUserId();
       final result = TestResult(
@@ -427,10 +448,21 @@ class _GrammarTestPageState extends State<GrammarTestPage> {
         testType: 'Grammar Test',
         score: standardizedScore,
         totalQuestions: _questions.length,
-        timestamp: DateTime.now(),
+        timestamp: timestamp,
       );
-      
-      await testResultsService.saveTestResult(result);
+
+      // Save both test result and detailed answers
+      await Future.wait([
+        testResultsService.saveTestResult(result),
+        firestoreService.saveTestAnswers(
+          firstName: widget.firstName,
+          lastName: widget.lastName,
+          testType: 'grammar',
+          answers: answersToSave,
+          timestamp: timestamp,
+        ),
+      ]);
+
       widget.onTestComplete?.call(testDuration, standardizedScore);
       
       if (!mounted) return;

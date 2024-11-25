@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_vector_icons/flutter_vector_icons.dart';
-import 'home_page.dart'; // Make sure to import the HomePage
+import 'package:media_kit/media_kit.dart';
+import 'package:media_kit_video/media_kit_video.dart';
+import 'home_page.dart';
 
 class InstructionPage extends StatefulWidget {
   const InstructionPage({super.key});
@@ -13,6 +15,41 @@ class InstructionPage extends StatefulWidget {
 class _InstructionPageState extends State<InstructionPage> {
   final PageController _pageController = PageController();
   int _currentPage = 0;
+  late final Player _player;
+  late final VideoController _controller;
+  bool _isVideoInitialized = false;
+  // Add offset state for draggable video
+  Offset _videoPosition = const Offset(24, -24); // Initial position at the very bottom left with small padding
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeVideo();
+  }
+
+  @override
+  void dispose() {
+    _player.dispose();
+    super.dispose();
+  }
+
+  Future<void> _initializeVideo() async {
+    try {
+      _player = Player();
+      _controller = VideoController(_player);
+      
+      await _player.open(Media('asset:///assets/videos/welcome_video.mp4'));
+      
+      if (mounted) {
+        setState(() {
+          _isVideoInitialized = true;
+        });
+        _player.play();
+      }
+    } catch (e) {
+      print('Error initializing video: $e');
+    }
+  }
 
   final List<InstructionSlide> _slides = [
     InstructionSlide(
@@ -137,23 +174,56 @@ class _InstructionPageState extends State<InstructionPage> {
                 ),
                 child: Column(
                   children: [
-                    _buildProgressIndicator(), // Add progress indicator
                     Expanded(
-                      child: PageView.builder(
-                        controller: _pageController,
-                        itemCount: _slides.length,
-                        onPageChanged: (int page) {
-                          setState(() {
-                            _currentPage = page;
-                          });
-                        },
-                        itemBuilder: (context, index) {
-                          return _buildSlide(_slides[index]);
-                        },
+                      flex: 4,
+                      child: Column(
+                        children: [
+                          _buildProgressIndicator(),
+                          Expanded(
+                            child: PageView.builder(
+                              controller: _pageController,
+                              itemCount: _slides.length,
+                              onPageChanged: (int page) {
+                                setState(() {
+                                  _currentPage = page;
+                                });
+                              },
+                              itemBuilder: (context, index) {
+                                return _buildSlide(_slides[index]);
+                              },
+                            ),
+                          ),
+                        ],
                       ),
                     ),
+                    if (_isVideoInitialized)
+                      Expanded(
+                        flex: 6,
+                        child: Container(
+                          margin: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+                          child: AspectRatio(
+                            aspectRatio: 16 / 9,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.black.withOpacity(0.8),
+                                borderRadius: BorderRadius.circular(24),
+                              ),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(24),
+                                child: Center(
+                                  child: Video(
+                                    controller: _controller,
+                                    controls: AdaptiveVideoControls,
+                                    fit: BoxFit.contain,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                     // Navigation buttons
-                    Container(
+                    Padding(
                       padding: const EdgeInsets.all(20),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -233,42 +303,39 @@ class _InstructionPageState extends State<InstructionPage> {
   // Update the slide building method
   Widget _buildSlide(InstructionSlide slide) {
     return Padding(
-      padding: const EdgeInsets.all(40),
+      padding: const EdgeInsets.symmetric(horizontal: 40),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: const Color(0xFF2193b0).withOpacity(0.1),
+              color: const Color(0xFFE8F6F9),
               shape: BoxShape.circle,
             ),
             child: Icon(
               slide.icon,
-              size: 80,
+              size: 36,
               color: const Color(0xFF2193b0),
             ),
           ),
-          const SizedBox(height: 40),
+          const SizedBox(height: 16),
           Text(
             slide.title,
             style: GoogleFonts.poppins(
-              fontSize: 32,
+              fontSize: 28,
               fontWeight: FontWeight.bold,
               color: const Color(0xFF2193b0),
             ),
           ),
-          const SizedBox(height: 20),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 40),
-            child: Text(
-              slide.content,
-              textAlign: TextAlign.center,
-              style: GoogleFonts.poppins(
-                fontSize: 18,
-                height: 1.6,
-                color: Colors.black87,
-              ),
+          const SizedBox(height: 12),
+          Text(
+            slide.content,
+            textAlign: TextAlign.center,
+            style: GoogleFonts.poppins(
+              fontSize: 16,
+              height: 1.4,
+              color: Colors.black87,
             ),
           ),
         ],

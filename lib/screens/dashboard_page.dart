@@ -141,45 +141,28 @@ class _DashboardPageState extends State<DashboardPage> {
     }
   }
 
-  Future<void> _generatePDFReport(Map<String, dynamic> testResult) async {
-    final resultKey = testResult['timestamp']?['timestampValue'] ?? '';
-    
+  Future<void> _generatePDFReport(Map<String, dynamic> result) async {
+    final timestamp = result['timestamp']?['timestampValue'];
+    if (timestamp == null) return;
+
+    setState(() {
+      _generatingPDFs[timestamp] = true;
+    });
+
     try {
-      setState(() => _generatingPDFs[resultKey] = true);
-
-      final firstName = testResult['firstName']?['stringValue'] ?? '';
-      final lastName = testResult['lastName']?['stringValue'] ?? '';
+      final firstName = result['firstName']?['stringValue'] ?? 'Unknown';
+      final lastName = result['lastName']?['stringValue'] ?? 'Unknown';
       
-      final testData = {
-        'totalScore': int.tryParse(testResult['totalScore']?['integerValue']?.toString() ?? '0') ?? 0,
-        'alcLevel': testResult['evolveLevel']?['stringValue'] ?? 'N/A',
-        'totalDuration': Duration(seconds: int.tryParse(
-          testResult['totalDuration']?['integerValue']?.toString() ?? '0'
-        ) ?? 0),
-        'listeningScore': int.tryParse(testResult['listeningScore']?['integerValue']?.toString() ?? '0') ?? 0,
-        'readingScore': int.tryParse(testResult['readingScore']?['integerValue']?.toString() ?? '0') ?? 0,
-        'grammarScore': int.tryParse(testResult['grammarScore']?['integerValue']?.toString() ?? '0') ?? 0,
-        'listeningDuration': Duration(seconds: int.tryParse(
-          testResult['listeningDuration']?['integerValue']?.toString() ?? '0'
-        ) ?? 0),
-        'readingDuration': Duration(seconds: int.tryParse(
-          testResult['readingDuration']?['integerValue']?.toString() ?? '0'
-        ) ?? 0),
-        'grammarDuration': Duration(seconds: int.tryParse(
-          testResult['grammarDuration']?['integerValue']?.toString() ?? '0'
-        ) ?? 0),
-      };
-
-      // Generate PDF data
+      final answers = await _firestoreService.fetchTestAnswers(timestamp);
+      
       final pdfData = await PDFReportService.generateTestReport(
         firstName: firstName,
         lastName: lastName,
-        testData: testData,
-        answers: [], // You'll need to implement answer fetching
+        testData: result,
+        answers: answers.map((a) => Map<String, dynamic>.from(a)).toList(),
       );
 
-      // Show save dialog
-      String? outputFile = await FilePicker.platform.saveFile(
+      final String? outputFile = await FilePicker.platform.saveFile(
         dialogTitle: 'Save PDF Report',
         fileName: '${firstName}_${lastName}_test_report.pdf',
         type: FileType.custom,
@@ -187,22 +170,17 @@ class _DashboardPageState extends State<DashboardPage> {
       );
 
       if (outputFile != null) {
-        // Make sure it ends with .pdf
-        if (!outputFile.toLowerCase().endsWith('.pdf')) {
-          outputFile += '.pdf';
-        }
-
-        // Save the file
-        final file = File(outputFile);
-        await file.writeAsBytes(pdfData);
-
+        final String filePath = outputFile.toLowerCase().endsWith('.pdf') 
+            ? outputFile 
+            : '$outputFile.pdf';
+        
+        await File(filePath).writeAsBytes(pdfData);
+        
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
+            const SnackBar(
               content: Text('PDF Report saved successfully'),
               backgroundColor: Colors.green,
-              behavior: SnackBarBehavior.floating,
-              margin: EdgeInsets.only(bottom: 40, left: 20, right: 20),
             ),
           );
         }
@@ -211,18 +189,16 @@ class _DashboardPageState extends State<DashboardPage> {
       print('Error generating PDF: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
+          const SnackBar(
             content: Text('Failed to generate PDF report'),
             backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-            margin: EdgeInsets.only(bottom: 40, left: 20, right: 20),
           ),
         );
       }
     } finally {
-      if (mounted) {
-        setState(() => _generatingPDFs[resultKey] = false);
-      }
+      setState(() {
+        _generatingPDFs[timestamp] = false;
+      });
     }
   }
 

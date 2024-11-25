@@ -72,9 +72,15 @@ class _ListeningTestPageState extends State<ListeningTestPage> {
   final TextEditingController _lastNameController = TextEditingController();
   final TestSessionService _testSessionService = TestSessionService();
   DateTime _startTime = DateTime.now();
+  int _currentSituationNumber = 1;
+  
+  // Keep these variables as they're needed for audio functionality
   bool _hasFinishedPlaying = false;
   bool _isAudioEnabled = true;
-  int _currentSituationNumber = 1;
+
+  // Add these new state variables
+  bool _isAudioLoading = true;
+  bool _isAudioInitialized = false;
 
   final List<Map<String, dynamic>> _questions = [
     {
@@ -334,86 +340,38 @@ class _ListeningTestPageState extends State<ListeningTestPage> {
   @override
   void initState() {
     super.initState();
-    _audioPlayer = AudioPlayer();
-    _currentSituationNumber = _questions[_currentQuestionIndex]['situation'];
-    _isAudioEnabled = true;
-    _loadNewAudio();
-    _startTime = DateTime.now();
-
-    _audioPlayer.playerStateStream.listen((state) {
-      if (state.processingState == ProcessingState.completed) {
-        setState(() {
-          _isPlaying = false;
-          _hasFinishedPlaying = true;
-        });
-      }
-    });
-
-    _initializeTimer();
-
+    _startTimer();
     _loadQuestionsAndAnswers();
-  }
-
-  void _initializeTimer() async {
-    final remainingTime = await _testSessionService.getListeningRemainingTime();
-
-    if (remainingTime == null || remainingTime.inSeconds <= 0) {
-      _handleTimeUp();
-      return;
+    _audioPlayer = AudioPlayer();
+    _startTime = DateTime.now();
+    
+    if (widget.remainingTime != null) {
+      _remainingTime = widget.remainingTime!;
+      _progress = _remainingTime.inSeconds / (_totalTimeInMinutes * 60);
     }
 
-    setState(() {
-      _remainingTime = remainingTime;
-      _progress = _remainingTime.inSeconds / (_totalTimeInMinutes * 60);
-    });
-
-    _startTimer();
+    // Initialize audio immediately
+    _initializeFirstAudio();
   }
 
-  void _startTimer() {
-    const oneSecond = Duration(seconds: 1);
-    _timer = Timer.periodic(oneSecond, (timer) async {
-      final remainingTime =
-          await _testSessionService.getListeningRemainingTime();
-
-      if (mounted) {
-        if (remainingTime == null || remainingTime.inSeconds <= 0) {
-          _timer.cancel();
-          _handleTimeUp();
-          return;
-        }
-
-        setState(() {
-          _remainingTime = remainingTime;
-          _progress = _remainingTime.inSeconds / (_totalTimeInMinutes * 60);
-        });
-      }
-    });
-  }
-
-  Future<void> _loadNewAudio() async {
+  Future<void> _initializeFirstAudio() async {
     try {
-      // Reset states
       setState(() {
-        _position = Duration.zero;
-        _bufferedPosition = Duration.zero;
-        _duration = Duration.zero;
-        _isPlaying = false;
-        _hasFinishedPlaying = false;
+        _isAudioLoading = true;
       });
 
-      // Stop current audio if playing
-      await _audioPlayer.stop();
+      // Initialize audio player
+      await _audioPlayer.setAsset(_questions[0]['audioUrl']);
+      
+      // Get initial duration
+      final duration = await _audioPlayer.duration;
+      if (duration != null) {
+        setState(() {
+          _duration = duration;
+        });
+      }
 
-      // Load the new audio file
-      final audioSource =
-          AudioSource.asset(_questions[_currentQuestionIndex]['audioUrl']);
-      await _audioPlayer.setAudioSource(audioSource, preload: true);
-
-      // Get new duration
-      _duration = await _audioPlayer.duration ?? Duration.zero;
-
-      // Add stream listeners
+      // Set up streams
       _audioPlayer.positionStream.listen((position) {
         if (mounted) {
           setState(() {
@@ -434,27 +392,76 @@ class _ListeningTestPageState extends State<ListeningTestPage> {
         if (mounted) {
           setState(() {
             _isPlaying = playerState.playing;
+            if (playerState.processingState == ProcessingState.completed) {
+              _hasFinishedPlaying = true;
+            }
           });
         }
       });
 
       setState(() {
+        _isAudioLoading = false;
+        _isAudioInitialized = true;
         _isAudioEnabled = true;
-      }); // Update UI with new duration and enable audio
-    } catch (e) {
-      print('Error loading new audio: $e');
+      });
+
+    } catch (e, stackTrace) {
+      print('Error initializing first audio: $e');
+      print('Stack trace: $stackTrace');
+      
+      if (mounted) {
+        setState(() {
+          _isAudioLoading = false;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to initialize audio. Please try again.'),
+            backgroundColor: Colors.red,
+            action: SnackBarAction(
+              label: 'Retry',
+              onPressed: _initializeFirstAudio,
+            ),
+          ),
+        );
+      }
     }
   }
 
+  void _startTimer() {
+    _timer = Timer.periodic(Duration(seconds: 1), (timer) {
+      if (_remainingTime.inSeconds > 0) {
+        setState(() {
+          _remainingTime = _remainingTime - Duration(seconds: 1);
+          _progress = _remainingTime.inSeconds / (_totalTimeInMinutes * 60);
+        });
+      } else {
+        _handleTimeUp();
+      }
+    });
+  }
+
   Future<void> _handlePlayPause() async {
+    if (!_isAudioInitialized) {
+      print('Audio not initialized yet');
+      return;
+    }
+
     try {
       if (_isPlaying) {
         await _audioPlayer.pause();
       } else {
+        await _audioPlayer.seek(Duration.zero); // Reset to beginning
         await _audioPlayer.play();
       }
     } catch (e) {
       print('Error playing/pausing audio: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error playing audio. Please try again.'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 
@@ -464,25 +471,40 @@ class _ListeningTestPageState extends State<ListeningTestPage> {
       await _testSessionService.endListeningTest();
       await _testSessionService.markTestAsCompleted('listening');
 
+      // Calculate scores and prepare answers data
       int correctAnswers = 0;
+      final answersToSave = <Map<String, dynamic>>[];
 
+      // Process each question and answer
       for (int i = 0; i < _questions.length; i++) {
-        String? userAnswer =
-            _userAnswers.length > i ? _userAnswers[i] : null;
-        String correctAnswer = _questions[i]['correctAnswer'];
+        final userAnswer = _userAnswers.length > i ? _userAnswers[i] : null;
+        final correctAnswer = _questions[i]['correctAnswer'];
+        final isCorrect = userAnswer?.trim() == correctAnswer.trim();
+        
+        if (isCorrect) correctAnswers++;
 
-        bool isMatch = userAnswer?.trim() == correctAnswer.trim();
-
-        if (isMatch) {
-          correctAnswers++;
-        }
+        answersToSave.add({
+          'situation': _questions[i]['situation'],
+          'question': _questions[i]['question'],
+          'userAnswer': userAnswer ?? 'No answer',
+          'correctAnswer': correctAnswer,
+          'isCorrect': isCorrect,
+          'options': _questions[i]['options'],
+        });
       }
 
-      final testDuration = DateTime.now().difference(_startTime);
-      final prefs = await SharedPreferences.getInstance();
+      final standardizedScore = ScoreCalculator.calculateListeningScore(
+        correctAnswers,
+        _questions.length
+      );
 
+      final testDuration = DateTime.now().difference(_startTime);
+      final timestamp = DateTime.now();
+
+      // Save test data locally
+      final prefs = await SharedPreferences.getInstance();
       await Future.wait([
-        prefs.setInt('listening_test_score', correctAnswers),
+        prefs.setInt('listening_test_score', standardizedScore),
         prefs.setInt('listening_test_duration', testDuration.inSeconds),
         prefs.setBool('listening_test_completed', true),
         prefs.setInt('listening_total_questions', _questions.length),
@@ -491,38 +513,53 @@ class _ListeningTestPageState extends State<ListeningTestPage> {
       // Save to Firestore
       final authService = AuthService();
       final testResultsService = TestResultsService(authService.projectId);
+      final firestoreService = FirestoreService();
+      
       final userId = await authService.getUserId();
-
       final result = TestResult(
         userId: userId ?? 'anonymous',
         firstName: widget.firstName,
         lastName: widget.lastName,
         testType: 'Listening Test',
-        score: correctAnswers,
+        score: standardizedScore,
         totalQuestions: _questions.length,
-        timestamp: DateTime.now(),
+        timestamp: timestamp,
       );
 
-      await testResultsService.saveTestResult(result);
-      widget.onTestComplete?.call(testDuration, correctAnswers);
+      // Save both test result and detailed answers
+      await Future.wait([
+        testResultsService.saveTestResult(result),
+        firestoreService.saveTestAnswers(
+          firstName: widget.firstName,
+          lastName: widget.lastName,
+          testType: 'listening',
+          answers: answersToSave,
+          timestamp: timestamp,
+        ),
+      ]);
 
-      if (mounted) {
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (context) => HomePage()),
-          (route) => false,
-        );
-      }
+      widget.onTestComplete?.call(testDuration, standardizedScore);
+
+      if (!mounted) return;
+      
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (context) => HomePage()),
+        (route) => false,
+      );
+
     } catch (e) {
-      print('Error in handleTestCompletion: $e');
-      print('Stack trace: ${StackTrace.current}');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error saving test results'),
-            backgroundColor: Colors.red,
+      print('Error completing listening test: $e');
+      if (!mounted) return;
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to save test result. Please try again.'),
+          action: SnackBarAction(
+            label: 'Retry',
+            onPressed: _handleTestCompletion,
           ),
-        );
-      }
+        ),
+      );
     }
   }
 
@@ -800,324 +837,422 @@ class _ListeningTestPageState extends State<ListeningTestPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        elevation: 0,
-        backgroundColor: Colors.white,
-        automaticallyImplyLeading: false,
-        title: Row(
-          children: [
-            Icon(
-              MaterialCommunityIcons.headphones,
-              color: Color(0xFF2193b0),
-              size: 28,
+    return Stack(
+      children: [
+        Scaffold(
+          appBar: AppBar(
+            elevation: 0,
+            backgroundColor: Colors.white,
+            automaticallyImplyLeading: false,
+            title: Row(
+              children: [
+                Icon(
+                  MaterialCommunityIcons.headphones,
+                  color: Color(0xFF2193b0),
+                  size: 28,
+                ),
+                SizedBox(width: 12),
+                Text(
+                  'Listening Test',
+                  style: GoogleFonts.poppins(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF2193b0),
+                  ),
+                ),
+              ],
             ),
-            SizedBox(width: 12),
-            Text(
-              'Listening Test',
-              style: GoogleFonts.poppins(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF2193b0),
-              ),
-            ),
-          ],
-        ),
-        centerTitle: false,
-        actions: [
-          Container(
-            margin: EdgeInsets.only(right: 16),
-            child: TextButton.icon(
-              style: TextButton.styleFrom(
-                padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20),
-                  side: BorderSide(color: Colors.red.shade400),
+            centerTitle: false,
+            actions: [
+              Container(
+                margin: EdgeInsets.only(right: 16),
+                child: TextButton.icon(
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(20),
+                      side: BorderSide(color: Colors.red.shade400),
+                    ),
+                  ),
+                  icon: Icon(
+                    Icons.exit_to_app,
+                    color: Colors.red.shade400,
+                    size: 20,
+                  ),
+                  label: Text(
+                    'Exit Test',
+                    style: GoogleFonts.poppins(
+                      color: Colors.red.shade400,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  onPressed: () => _showExitConfirmation(context),
                 ),
               ),
-              icon: Icon(
-                Icons.exit_to_app,
-                color: Colors.red.shade400,
-                size: 20,
-              ),
-              label: Text(
-                'Exit Test',
-                style: GoogleFonts.poppins(
-                  color: Colors.red.shade400,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              onPressed: () => _showExitConfirmation(context),
-            ),
+            ],
+            toolbarHeight: 72,
           ),
-        ],
-        toolbarHeight: 72,
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            child: Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [Color(0xFF2193b0), Color(0xFF6dd5ed)],
-                ),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(32.0),
-                child: Row(
-                  children: [
-                    Expanded(
-                      flex: 2,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Expanded(
-                            flex: 4,
-                            child: Card(
-                              margin: EdgeInsets.zero,
-                              elevation: 8,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(24),
-                              ),
-                              child: Padding(
-                                padding: const EdgeInsets.all(24.0),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Question ${_currentQuestionIndex + 1} of ${_questions.length}',
-                                      style: GoogleFonts.poppins(
-                                        fontSize: 20,
-                                        color: Colors.grey[600],
-                                      ),
-                                    ),
-                                    SizedBox(height: 24),
-                                    Text(
-                                      _questions[_currentQuestionIndex]
-                                          ['question'],
-                                      style: GoogleFonts.poppins(
-                                        fontSize: 24,
-                                        fontWeight: FontWeight.bold,
-                                        color: const Color(0xFF2193b0),
-                                      ),
-                                    ),
-                                    Spacer(),
-                                    Container(
-                                      padding:
-                                          EdgeInsets.symmetric(horizontal: 24),
-                                      child: Column(
-                                        children: [
-                                          Container(
-                                            height: 36,
-                                            child: Stack(
-                                              alignment: Alignment.center,
-                                              children: [
-                                                SliderTheme(
-                                                  data: SliderThemeData(
-                                                    trackHeight: 4,
-                                                    thumbShape:
-                                                        RoundSliderThumbShape(
-                                                            enabledThumbRadius:
-                                                                0),
-                                                    overlayShape:
-                                                        RoundSliderOverlayShape(
-                                                            overlayRadius: 0),
-                                                    trackShape:
-                                                        CustomTrackShape(),
-                                                    rangeTrackShape:
-                                                        RoundedRectRangeSliderTrackShape(),
-                                                    showValueIndicator:
-                                                        ShowValueIndicator
-                                                            .never,
-                                                  ),
-                                                  child: Slider(
-                                                    value: min(
-                                                        _bufferedPosition
-                                                            .inSeconds
-                                                            .toDouble(),
-                                                        _duration.inSeconds
-                                                            .toDouble()),
-                                                    max: _duration.inSeconds
-                                                        .toDouble(),
-                                                    onChanged: null,
-                                                    activeColor:
-                                                        Color(0xFF2193b0)
-                                                            .withOpacity(0.24),
-                                                    inactiveColor:
-                                                        Colors.grey.shade200,
-                                                  ),
-                                                ),
-                                                SliderTheme(
-                                                  data: SliderThemeData(
-                                                    trackHeight: 4,
-                                                    thumbShape:
-                                                        RoundSliderThumbShape(
-                                                            enabledThumbRadius:
-                                                                8),
-                                                    overlayShape:
-                                                        RoundSliderOverlayShape(
-                                                            overlayRadius: 16),
-                                                    trackShape:
-                                                        CustomTrackShape(),
-                                                    activeTrackColor:
-                                                        Color(0xFF2193b0),
-                                                    inactiveTrackColor:
-                                                        Colors.transparent,
-                                                    thumbColor:
-                                                        Color(0xFF2193b0),
-                                                    overlayColor:
-                                                        Color(0xFF2193b0)
-                                                            .withOpacity(0.12),
-                                                  ),
-                                                  child: Slider(
-                                                    value: _position.inSeconds
-                                                        .toDouble(),
-                                                    max: _duration.inSeconds
-                                                        .toDouble(),
-                                                    onChanged: null,
-                                                    onChangeEnd: null,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                          Padding(
-                                            padding: const EdgeInsets.symmetric(
-                                                horizontal: 12),
-                                            child: Row(
-                                              mainAxisAlignment:
-                                                  MainAxisAlignment
-                                                      .spaceBetween,
-                                              children: [
-                                                Text(
-                                                  _formatDuration(_position),
-                                                  style: GoogleFonts.poppins(
-                                                    color: Colors.grey[600],
-                                                    fontSize: 12,
-                                                    fontWeight:
-                                                        FontWeight.w500,
-                                                  ),
-                                                ),
-                                                Text(
-                                                  _formatDuration(_duration),
-                                                  style: GoogleFonts.poppins(
-                                                    color: Colors.grey[600],
-                                                    fontSize: 12,
-                                                    fontWeight:
-                                                        FontWeight.w500,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                          SizedBox(height: 8),
-                                          Row(
-                                            mainAxisAlignment:
-                                                MainAxisAlignment.center,
-                                            children: [
-                                              IconButton(
-                                                iconSize: 48,
-                                                icon: AnimatedSwitcher(
-                                                  duration: Duration(
-                                                      milliseconds: 200),
-                                                  transitionBuilder:
-                                                      (child, animation) =>
-                                                          ScaleTransition(
-                                                    scale: animation,
-                                                    child: child,
-                                                  ),
-                                                  child: Icon(
-                                                    _isPlaying
-                                                        ? Icons
-                                                            .pause_circle_filled
-                                                        : Icons
-                                                            .play_circle_filled,
-                                                    key: ValueKey<bool>(
-                                                        _isPlaying),
-                                                    size: 48,
-                                                    color: _hasFinishedPlaying ||
-                                                            !_isAudioEnabled
-                                                        ? Colors.grey
-                                                        : Color(0xFF2193b0),
-                                                  ),
-                                                ),
-                                                onPressed: _hasFinishedPlaying ||
-                                                        !_isAudioEnabled
-                                                    ? null
-                                                    : _handlePlayPause,
-                                              ),
-                                            ],
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                          SizedBox(height: 16),
-                          Card(
-                            margin: EdgeInsets.zero,
-                            elevation: 8,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(24),
-                            ),
-                            child: Padding(
-                              padding: EdgeInsets.all(24),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    Icons.timer_outlined,
-                                    color: _remainingTime.inMinutes < 5
-                                        ? Colors.red
-                                        : Color(0xFF2193b0),
-                                    size: 28,
+          body: Column(
+            children: [
+              Expanded(
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFF2193b0), Color(0xFF6dd5ed)],
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(32.0),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          flex: 2,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              Expanded(
+                                flex: 4,
+                                child: Card(
+                                  margin: EdgeInsets.zero,
+                                  elevation: 8,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(24),
                                   ),
-                                  SizedBox(width: 16),
-                                  Expanded(
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(24.0),
                                     child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
                                         Text(
-                                          'Time Remaining',
+                                          'Question ${_currentQuestionIndex + 1} of ${_questions.length}',
                                           style: GoogleFonts.poppins(
-                                            fontSize: 16,
-                                            fontWeight: FontWeight.w500,
+                                            fontSize: 20,
                                             color: Colors.grey[600],
                                           ),
                                         ),
-                                        SizedBox(height: 8),
+                                        SizedBox(height: 24),
                                         Text(
-                                          _formatTime(_remainingTime),
+                                          _questions[_currentQuestionIndex]
+                                              ['question'],
                                           style: GoogleFonts.poppins(
                                             fontSize: 24,
                                             fontWeight: FontWeight.bold,
-                                            color: _remainingTime.inMinutes < 5
-                                                ? Colors.red
-                                                : Color(0xFF2193b0),
+                                            color: const Color(0xFF2193b0),
+                                          ),
+                                        ),
+                                        Spacer(),
+                                        Container(
+                                          padding:
+                                              EdgeInsets.symmetric(horizontal: 24),
+                                          child: Column(
+                                            children: [
+                                              Container(
+                                                height: 36,
+                                                child: Stack(
+                                                  alignment: Alignment.center,
+                                                  children: [
+                                                    SliderTheme(
+                                                      data: SliderThemeData(
+                                                        trackHeight: 4,
+                                                        thumbShape:
+                                                            RoundSliderThumbShape(
+                                                                enabledThumbRadius:
+                                                                    0),
+                                                        overlayShape:
+                                                            RoundSliderOverlayShape(
+                                                                overlayRadius: 0),
+                                                        trackShape:
+                                                            CustomTrackShape(),
+                                                        rangeTrackShape:
+                                                            RoundedRectRangeSliderTrackShape(),
+                                                        showValueIndicator:
+                                                            ShowValueIndicator
+                                                                .never,
+                                                      ),
+                                                      child: Slider(
+                                                        value: min(
+                                                            _bufferedPosition
+                                                                .inSeconds
+                                                                .toDouble(),
+                                                            _duration.inSeconds
+                                                                .toDouble()),
+                                                        max: _duration.inSeconds
+                                                            .toDouble(),
+                                                        onChanged: null,
+                                                        activeColor:
+                                                            Color(0xFF2193b0)
+                                                                .withOpacity(0.24),
+                                                        inactiveColor:
+                                                            Colors.grey.shade200,
+                                                      ),
+                                                    ),
+                                                    SliderTheme(
+                                                      data: SliderThemeData(
+                                                        trackHeight: 4,
+                                                        thumbShape:
+                                                            RoundSliderThumbShape(
+                                                                enabledThumbRadius:
+                                                                    8),
+                                                        overlayShape:
+                                                            RoundSliderOverlayShape(
+                                                                overlayRadius: 16),
+                                                        trackShape:
+                                                            CustomTrackShape(),
+                                                        activeTrackColor:
+                                                            Color(0xFF2193b0),
+                                                        inactiveTrackColor:
+                                                            Colors.transparent,
+                                                        thumbColor:
+                                                            Color(0xFF2193b0),
+                                                        overlayColor:
+                                                            Color(0xFF2193b0)
+                                                                .withOpacity(0.12),
+                                                      ),
+                                                      child: Slider(
+                                                        value: _position.inSeconds
+                                                            .toDouble(),
+                                                        max: _duration.inSeconds
+                                                            .toDouble(),
+                                                        onChanged: null,
+                                                        onChangeEnd: null,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                              Padding(
+                                                padding: const EdgeInsets.symmetric(
+                                                    horizontal: 12),
+                                                child: Row(
+                                                  mainAxisAlignment:
+                                                      MainAxisAlignment
+                                                          .spaceBetween,
+                                                  children: [
+                                                    Text(
+                                                      _formatDuration(_position),
+                                                      style: GoogleFonts.poppins(
+                                                        color: Colors.grey[600],
+                                                        fontSize: 12,
+                                                        fontWeight:
+                                                            FontWeight.w500,
+                                                      ),
+                                                    ),
+                                                    Text(
+                                                      _formatDuration(_duration),
+                                                      style: GoogleFonts.poppins(
+                                                        color: Colors.grey[600],
+                                                        fontSize: 12,
+                                                        fontWeight:
+                                                            FontWeight.w500,
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                              SizedBox(height: 8),
+                                              Row(
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment.center,
+                                                children: [
+                                                  _buildAudioControls(),
+                                                ],
+                                              ),
+                                            ],
                                           ),
                                         ),
                                       ],
                                     ),
                                   ),
-                                  Expanded(
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(10),
-                                      child: LinearProgressIndicator(
-                                        value: _progress,
-                                        backgroundColor: Colors.grey.shade200,
-                                        valueColor:
-                                            AlwaysStoppedAnimation<Color>(
-                                          _remainingTime.inMinutes < 5
-                                              ? Colors.red
-                                              : Color(0xFF2193b0),
+                                ),
+                              ),
+                              SizedBox(height: 16),
+                              Card(
+                                margin: EdgeInsets.zero,
+                                elevation: 8,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(24),
+                                ),
+                                child: Padding(
+                                  padding: EdgeInsets.all(24),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.timer_outlined,
+                                        color: _remainingTime.inMinutes < 5
+                                            ? Colors.red
+                                            : Color(0xFF2193b0),
+                                        size: 28,
+                                      ),
+                                      SizedBox(width: 16),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              'Time Remaining',
+                                              style: GoogleFonts.poppins(
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.w500,
+                                                color: Colors.grey[600],
+                                              ),
+                                            ),
+                                            SizedBox(height: 8),
+                                            Text(
+                                              _formatTime(_remainingTime),
+                                              style: GoogleFonts.poppins(
+                                                fontSize: 24,
+                                                fontWeight: FontWeight.bold,
+                                                color: _remainingTime.inMinutes < 5
+                                                    ? Colors.red
+                                                    : Color(0xFF2193b0),
+                                              ),
+                                            ),
+                                          ],
                                         ),
-                                        minHeight: 12,
+                                      ),
+                                      Expanded(
+                                        child: ClipRRect(
+                                          borderRadius: BorderRadius.circular(10),
+                                          child: LinearProgressIndicator(
+                                            value: _progress,
+                                            backgroundColor: Colors.grey.shade200,
+                                            valueColor:
+                                                AlwaysStoppedAnimation<Color>(
+                                              _remainingTime.inMinutes < 5
+                                                  ? Colors.red
+                                                  : Color(0xFF2193b0),
+                                            ),
+                                            minHeight: 12,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        SizedBox(width: 32),
+                        Expanded(
+                          child: Card(
+                            elevation: 8,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(24),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.only(
+                                  left: 24.0, top: 24.0, bottom: 24.0, right: 8.0),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Text(
+                                    'Select your answer:',
+                                    style: GoogleFonts.poppins(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold,
+                                      color: const Color(0xFF2193b0),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 24),
+                                  Expanded(
+                                    child: Scrollbar(
+                                      thickness: 8,
+                                      radius: Radius.circular(4),
+                                      thumbVisibility: true,
+                                      child: SingleChildScrollView(
+                                        child: Padding(
+                                          padding:
+                                              const EdgeInsets.only(right: 16.0),
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.stretch,
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              ..._questions[_currentQuestionIndex]
+                                                      ['options']
+                                                  .map<Widget>(
+                                                      (option) => _buildOptionButton(
+                                                          option))
+                                                  .toList(),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  SizedBox(height: 32),
+                                  ElevatedButton(
+                                    style: ElevatedButton.styleFrom(
+                                      padding: EdgeInsets.zero,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(24),
+                                      ),
+                                    ),
+                                    onPressed: _selectedAnswer != null
+                                        ? () async {
+                                            if (_currentQuestionIndex <
+                                                _questions.length - 1) {
+                                              _userAnswers.add(_selectedAnswer);
+
+                                              int nextQuestionIndex =
+                                                  _currentQuestionIndex + 1;
+                                              int nextSituationNumber =
+                                                  _questions[nextQuestionIndex]
+                                                      ['situation'];
+
+                                              setState(() {
+                                                _currentQuestionIndex++;
+                                                _selectedAnswer = null;
+                                                if (nextSituationNumber !=
+                                                    _currentSituationNumber) {
+                                                  _currentSituationNumber =
+                                                      nextSituationNumber;
+                                                  _isAudioEnabled = true;
+                                                  _loadNewAudio();
+                                                } else {
+                                                  _isAudioEnabled = false;
+                                                }
+                                              });
+                                            } else {
+                                              _timer.cancel();
+
+                                              _userAnswers.add(_selectedAnswer);
+
+                                              await _handleTestCompletion();
+                                            }
+                                          }
+                                        : null,
+                                    child: Ink(
+                                      decoration: BoxDecoration(
+                                        gradient: LinearGradient(
+                                          colors: [
+                                            Color(0xFF2193b0),
+                                            Color(0xFF6dd5ed)
+                                          ],
+                                          begin: Alignment.centerLeft,
+                                          end: Alignment.centerRight,
+                                        ),
+                                        borderRadius: BorderRadius.circular(24),
+                                      ),
+                                      child: Container(
+                                        height: 48,
+                                        alignment: Alignment.center,
+                                        child: Text(
+                                          _currentQuestionIndex <
+                                                  _questions.length - 1
+                                              ? 'Next Question'
+                                              : 'Finish Test',
+                                          style: GoogleFonts.poppins(
+                                            fontSize: 16,
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ),
@@ -1125,140 +1260,16 @@ class _ListeningTestPageState extends State<ListeningTestPage> {
                               ),
                             ),
                           ),
-                        ],
-                      ),
-                    ),
-                    SizedBox(width: 32),
-                    Expanded(
-                      child: Card(
-                        elevation: 8,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(24),
                         ),
-                        child: Padding(
-                          padding: const EdgeInsets.only(
-                              left: 24.0, top: 24.0, bottom: 24.0, right: 8.0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Text(
-                                'Select your answer:',
-                                style: GoogleFonts.poppins(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.bold,
-                                  color: const Color(0xFF2193b0),
-                                ),
-                              ),
-                              const SizedBox(height: 24),
-                              Expanded(
-                                child: Scrollbar(
-                                  thickness: 8,
-                                  radius: Radius.circular(4),
-                                  thumbVisibility: true,
-                                  child: SingleChildScrollView(
-                                    child: Padding(
-                                      padding:
-                                          const EdgeInsets.only(right: 16.0),
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.stretch,
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          ..._questions[_currentQuestionIndex]
-                                                  ['options']
-                                              .map<Widget>(
-                                                  (option) => _buildOptionButton(
-                                                      option))
-                                              .toList(),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              SizedBox(height: 32),
-                              ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                  padding: EdgeInsets.zero,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(24),
-                                  ),
-                                ),
-                                onPressed: _selectedAnswer != null
-                                    ? () async {
-                                        if (_currentQuestionIndex <
-                                            _questions.length - 1) {
-                                          _userAnswers.add(_selectedAnswer);
-
-                                          int nextQuestionIndex =
-                                              _currentQuestionIndex + 1;
-                                          int nextSituationNumber =
-                                              _questions[nextQuestionIndex]
-                                                  ['situation'];
-
-                                          setState(() {
-                                            _currentQuestionIndex++;
-                                            _selectedAnswer = null;
-                                            if (nextSituationNumber !=
-                                                _currentSituationNumber) {
-                                              _currentSituationNumber =
-                                                  nextSituationNumber;
-                                              _isAudioEnabled = true;
-                                              _loadNewAudio();
-                                            } else {
-                                              _isAudioEnabled = false;
-                                            }
-                                          });
-                                        } else {
-                                          _timer.cancel();
-
-                                          _userAnswers.add(_selectedAnswer);
-
-                                          await _handleTestCompletion();
-                                        }
-                                      }
-                                    : null,
-                                child: Ink(
-                                  decoration: BoxDecoration(
-                                    gradient: LinearGradient(
-                                      colors: [
-                                        Color(0xFF2193b0),
-                                        Color(0xFF6dd5ed)
-                                      ],
-                                      begin: Alignment.centerLeft,
-                                      end: Alignment.centerRight,
-                                    ),
-                                    borderRadius: BorderRadius.circular(24),
-                                  ),
-                                  child: Container(
-                                    height: 48,
-                                    alignment: Alignment.center,
-                                    child: Text(
-                                      _currentQuestionIndex <
-                                              _questions.length - 1
-                                          ? 'Next Question'
-                                          : 'Finish Test',
-                                      style: GoogleFonts.poppins(
-                                        fontSize: 16,
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
-            ),
+            ],
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -1600,6 +1611,105 @@ class _ListeningTestPageState extends State<ListeningTestPage> {
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (context) => HomePage()),
           (route) => false,
+        );
+      }
+    }
+  }
+
+  Widget _buildAudioControls() {
+    if (_isAudioLoading) {
+      return Center(
+        child: CircularProgressIndicator(
+          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF2193b0)),
+        ),
+      );
+    }
+
+    return IconButton(
+      iconSize: 48,
+      icon: AnimatedSwitcher(
+        duration: Duration(milliseconds: 200),
+        transitionBuilder: (child, animation) => ScaleTransition(
+          scale: animation,
+          child: child,
+        ),
+        child: Icon(
+          _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
+          key: ValueKey<bool>(_isPlaying),
+          size: 48,
+          color: _hasFinishedPlaying || !_isAudioEnabled
+              ? Colors.grey
+              : Color(0xFF2193b0),
+        ),
+      ),
+      onPressed: (_hasFinishedPlaying || !_isAudioEnabled) 
+          ? null 
+          : _handlePlayPause,
+    );
+  }
+
+  Future<void> _loadNewAudio() async {
+    try {
+      setState(() {
+        _isAudioLoading = true;
+        _isAudioInitialized = false;
+      });
+
+      print('Loading new audio for question ${_currentQuestionIndex + 1}');
+      
+      // Reset states
+      setState(() {
+        _position = Duration.zero;
+        _bufferedPosition = Duration.zero;
+        _duration = Duration.zero;
+        _isPlaying = false;
+        _hasFinishedPlaying = false;
+      });
+
+      // Stop current audio if playing
+      await _audioPlayer.stop();
+
+      final audioUrl = _questions[_currentQuestionIndex]['audioUrl'];
+      print('Attempting to load audio from: $audioUrl');
+
+      // Load the new audio file
+      await _audioPlayer.setAsset(audioUrl);
+      print('Audio loaded successfully');
+
+      // Get new duration
+      final duration = await _audioPlayer.duration;
+      print('Audio duration: ${duration?.toString() ?? "unknown"}');
+
+      if (duration != null) {
+        setState(() {
+          _duration = duration;
+        });
+      }
+
+      setState(() {
+        _isAudioLoading = false;
+        _isAudioInitialized = true;
+        _isAudioEnabled = true;
+      });
+
+    } catch (e, stackTrace) {
+      print('Error loading audio: $e');
+      print('Stack trace: $stackTrace');
+      
+      if (mounted) {
+        setState(() {
+          _isAudioLoading = false;
+        });
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load audio. Please try again.'),
+            backgroundColor: Colors.red,
+            action: SnackBarAction(
+              label: 'Retry',
+              onPressed: _loadNewAudio,
+            ),
+          ),
         );
       }
     }

@@ -415,4 +415,113 @@ class FirestoreService {
   bool isValidSchoolCode(String code) {
     return code.length >= 4 && RegExp(r'^[A-Za-z0-9]+$').hasMatch(code);
   }
+
+  Future<List<Map<String, dynamic>>> fetchTestAnswers(String timestamp) async {
+    try {
+      final queryUrl = Uri.parse('$_baseUrl:runQuery?key=$apiKey');
+      final queryBody = {
+        'structuredQuery': {
+          'from': [{'collectionId': 'testAnswers'}],
+          'where': {
+            'fieldFilter': {
+              'field': {'fieldPath': 'timestamp'},
+              'op': 'EQUAL',
+              'value': {'timestampValue': timestamp}
+            }
+          },
+          'orderBy': [
+            {
+              'field': {'fieldPath': 'section'},
+              'direction': 'ASCENDING'
+            },
+            {
+              'field': {'fieldPath': 'questionNumber'},
+              'direction': 'ASCENDING'
+            }
+          ]
+        }
+      };
+
+      final response = await http.post(
+        queryUrl,
+        headers: {'Content-Type': 'application/json'},
+        body: json.encode(queryBody),
+      );
+
+      if (response.statusCode != 200) {
+        throw Exception('Failed to fetch test answers');
+      }
+
+      final List<dynamic> queryResults = json.decode(response.body);
+      final List<Map<String, dynamic>> answers = [];
+
+      for (var queryResult in queryResults) {
+        if (queryResult.containsKey('document')) {
+          final document = queryResult['document'];
+          if (document.containsKey('fields')) {
+            final fields = document['fields'];
+            answers.add({
+              'section': fields['section']?['stringValue'] ?? 'unknown',
+              'questionNumber': int.tryParse(fields['questionNumber']?['integerValue']?.toString() ?? '0') ?? 0,
+              'question': fields['question']?['stringValue'] ?? '',
+              'userAnswer': fields['userAnswer']?['stringValue'] ?? '',
+              'correctAnswer': fields['correctAnswer']?['stringValue'] ?? '',
+              'isCorrect': fields['isCorrect']?['booleanValue'] ?? false,
+              'explanation': fields['explanation']?['stringValue'] ?? '',
+            });
+          }
+        }
+      }
+
+      return answers;
+    } catch (e) {
+      print('Error fetching test answers: $e');
+      rethrow;
+    }
+  }
+
+  Future<void> saveTestAnswers({
+    required String firstName,
+    required String lastName,
+    required String testType,
+    required List<Map<String, dynamic>> answers,
+    required DateTime timestamp,
+  }) async {
+    try {
+      final url = Uri.parse('$_baseUrl/testAnswers?key=$apiKey');
+
+      // Create a batch of answers to save
+      for (int i = 0; i < answers.length; i++) {
+        final answer = answers[i];
+        final answerData = {
+          'fields': {
+            'firstName': {'stringValue': firstName},
+            'lastName': {'stringValue': lastName},
+            'timestamp': {'timestampValue': timestamp.toUtc().toIso8601String()},
+            'section': {'stringValue': testType.toLowerCase()},
+            'questionNumber': {'integerValue': i + 1},
+            'question': {'stringValue': answer['question'] ?? ''},
+            'userAnswer': {'stringValue': answer['userAnswer'] ?? ''},
+            'correctAnswer': {'stringValue': answer['correctAnswer'] ?? ''},
+            'isCorrect': {'booleanValue': answer['isCorrect'] ?? false},
+            'explanation': {'stringValue': answer['explanation'] ?? ''},
+          }
+        };
+
+        final response = await http.post(
+          url,
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode(answerData),
+        );
+
+        if (response.statusCode != 200) {
+          print('Failed to save answer ${i + 1}. Status: ${response.statusCode}');
+          throw Exception('Failed to save test answers');
+        }
+      }
+    } catch (e) {
+      print('Error saving test answers: $e');
+      rethrow;
+    }
+  }
 }
