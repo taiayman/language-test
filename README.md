@@ -1,69 +1,72 @@
-# Language Test App for ALC El Jadida 🎓
+# Language Test — ALC El Jadida
 
-A cross-platform desktop and mobile application built with Flutter to digitize and streamline English language assessments for students and teachers.
+A cross-platform language testing app built for **ALC El Jadida** (American Language Center, Morocco). Replaces paper exams with an interactive desktop application where students sit listening, reading, and grammar tests, and teachers see results land in real time.
 
-## 🌟 About The Project
+Built Windows-first for the school's lab machines, but the same codebase runs on macOS, Linux, web, Android, and iOS.
 
-This project is a dedicated language testing platform developed for the **ALC El Jadida school**. It replaces traditional paper-based exams with an interactive digital experience, streamlining the entire assessment process from test-taking to grading and analysis. Students can take tests on their computers, and teachers can instantly view and analyze the results from a comprehensive dashboard.
+![Flutter](https://img.shields.io/badge/Flutter-3.x-02569B?logo=flutter&logoColor=white)
+![Dart](https://img.shields.io/badge/Dart-3.x-0175C2?logo=dart&logoColor=white)
+![Windows](https://img.shields.io/badge/Windows-Desktop-0078D6?logo=windows&logoColor=white)
+![macOS](https://img.shields.io/badge/macOS-000000?logo=apple&logoColor=white)
+![Linux](https://img.shields.io/badge/Linux-FCC624?logo=linux&logoColor=black)
+![Android](https://img.shields.io/badge/Android-3DDC84?logo=android&logoColor=white)
+![iOS](https://img.shields.io/badge/iOS-000000?logo=apple&logoColor=white)
+![Supabase](https://img.shields.io/badge/Supabase-3ECF8E?logo=supabase&logoColor=white)
 
-The primary goal is to create an efficient, paperless, and modern testing environment.
+## What it does
 
-### ✨ Key Features
+**For students**
 
-**For Students:**
-*   **Interactive Test Interface:** A clean and intuitive UI for a smooth test-taking experience.
-*   **Multiple Test Modes:** Specialized sections for assessing different skills:
-    *   🎧 **Listening Comprehension:** With integrated audio players.
-    *   📖 **Reading Comprehension:** Evaluate reading and analytical skills.
-    *   ✍️ **Grammar & Structure:** Test language and grammar knowledge.
-*   **Instant Feedback:** (Optional) Students can see their results immediately after completion.
+- Sit listening, reading, and grammar tests in one app
+- Built-in audio player for listening sections (`just_audio` + `media_kit` so it works on Windows where the default Flutter audio plugin doesn't)
+- Video-based instructions before each section
+- Onboarding tour the first time it's opened (`tutorial_coach_mark`)
+- Instant scoring on completion
 
-**For Teachers:**
-*   **Centralized Dashboard:** A powerful overview of all testing activities.
-*   **Real-Time Results:** View student submissions and scores as they come in.
-*   **Performance Analytics:** Track key metrics like average scores, completion rates, and identify top-performing students.
-*   **Eliminates Manual Grading:** Automated scoring saves time and reduces manual effort.
-*   **Secure Access:** A dedicated login ensures that only authorized staff can view results.
+**For teachers**
 
-## 💻 Built With
+- Dashboard with every submission as it comes in
+- Per-student breakdown, average scores, completion rates
+- Print or export results as PDF
+- Auth-gated so only staff can see grades
 
-This application is built using modern, cross-platform technology:
+## Why desktop
 
-*   **[Flutter](https://flutter.dev/)**: For building a single, high-performance application for Windows, macOS, Linux, Web, Android, and iOS from one codebase.
-*   **[Dart](https://dart.dev/)**: The programming language used for Flutter development.
+The school's lab is Windows PCs, so the primary target is `windows`. The dependency list reflects that:
 
-## 🚀 Getting Started
+- `media_kit_libs_windows_video` / `media_kit_libs_windows_audio` — native media playback on Windows
+- `just_audio_windows` — keeps the audio API consistent across platforms
+- A `dependency_override` on `just_audio_platform_interface` pins the Windows-compatible version
 
-To get a local copy up and running, follow these steps.
+The same code still builds for the other 5 platforms; Windows was just the first one that mattered.
 
-### Prerequisites
+## Stack
 
-Ensure you have the Flutter SDK installed on your machine. For installation instructions, see the [official Flutter documentation](https://flutter.dev/docs/get-started/install).
+| Layer | Tools |
+| --- | --- |
+| Framework | Flutter (Dart 3, SDK ≥ 3.4.4) |
+| Backend | Supabase (auth + Postgres + storage) |
+| Media | `just_audio`, `media_kit`, `media_kit_video` |
+| UI | `google_fonts`, `flutter_vector_icons`, `tutorial_coach_mark` |
+| Files | `file_picker`, `file_selector`, `path_provider` |
+| Reports | `pdf`, `printing` |
+| Storage | `shared_preferences` |
 
-### Installation
+## Running it locally
 
-1.  **Clone the repository**
-    ```sh
-    git clone https://github.com/taiayman/language-test.git
-    ```
-2.  **Navigate into the project directory**
-    ```sh
-    cd language-test
-    ```
-3.  **Install dependencies**
-    ```sh
-    flutter pub get
-    ```
-4.  **Run the application**
-    You can run the app on any supported platform. For the desktop experience:
-    ```sh
-    flutter run -d windows
-    ```
-    Or for web:
-    ```sh
-    flutter run -d chrome
-    ```
+```bash
+git clone https://github.com/taiayman/language-test.git
+cd language-test
+flutter pub get
+```
 
-## 📂 Project Structure
+Add your Supabase keys (see `lib/` for where they're initialized), then:
 
-The project follows the standard Flutter project structure:
+```bash
+flutter run -d windows   # or macos, linux, chrome, android, ios
+```
+
+## Notes
+
+- The audio/video assets in `assets/` are the actual test materials (intentionally kept in-repo so the app works fully offline once installed on lab PCs)
+- Built for a specific school, but the architecture (Supabase-backed test runner + dashboard) is reusable for any timed assessment scenario
